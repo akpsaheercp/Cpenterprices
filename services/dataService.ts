@@ -1,8 +1,7 @@
 
 import { AppState, Business, BusinessData, Product, Invoice, Party, Purchase, Expense, ManualTransaction, AuditLog, AppPreferences, User, TaxGroup, Currency } from '../types';
-import { supabase } from './supabase';
 
-const STORAGE_KEY = 'bizflow_ai_data_v4_clean';
+const STORAGE_KEY = 'bizflow_ai_data_local_v1';
 
 const DEFAULT_PREFERENCES: AppPreferences = {
   mobileSidebarStyle: 'hidden',
@@ -30,145 +29,17 @@ const INITIAL_STATE: AppState = {
   }
 };
 
+/**
+ * Initializes the app state from Local Storage.
+ * Database connections are currently disabled.
+ */
 export const initializeSync = (onStateChange: (newState: AppState, syncComplete?: boolean) => void) => {
-  const sync = async () => {
-    // 1. Immediately load local data to prevent white screen
-    const localState = getAppState();
-    onStateChange(localState, false);
+  const localState = getAppState();
+  
+  // Provide an immediate update to the UI
+  onStateChange(localState, true);
 
-    // 2. Short-circuit if API key is missing
-    if (!process.env.API_KEY) {
-        onStateChange(localState, true);
-        return;
-    }
-
-    try {
-      // 3. Attempt to fetch live data from Supabase with a timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-      const { data: dbBusinesses, error: bError } = await supabase.from('businesses').select('*');
-      clearTimeout(timeoutId);
-      
-      if (dbBusinesses && dbBusinesses.length > 0) {
-        const businesses: Business[] = dbBusinesses.map(b => ({
-          id: b.id,
-          name: b.name,
-          currency: b.currency as Currency,
-          invoicePrefix: b.invoice_prefix,
-          invoiceStartNumber: b.invoice_start_number,
-          gstIn: b.gst_in,
-          phone: b.phone,
-          addressLine1: b.address_line1,
-          city: b.city,
-          state: b.state,
-          pincode: b.pincode,
-          email: b.email,
-          bankName: b.bank_name,
-          bankAccountNo: b.bank_account_no,
-          bankBranchIFSC: b.bank_branch_ifsc
-        }));
-
-        const appData: Record<string, BusinessData> = {};
-
-        const [
-          { data: dbProducts },
-          { data: dbParties },
-          { data: dbInvoices },
-          { data: dbPurchases }
-        ] = await Promise.all([
-          supabase.from('products').select('*'),
-          supabase.from('parties').select('*'),
-          supabase.from('invoices').select('*'),
-          supabase.from('purchases').select('*')
-        ]);
-        
-        businesses.forEach(biz => {
-          appData[biz.id] = {
-            products: (dbProducts || [])
-              .filter(p => p.business_id === biz.id)
-              .map(p => ({
-                id: p.id,
-                name: p.name,
-                sku: p.sku || '',
-                category: p.category || 'General',
-                price: Number(p.price) || 0,
-                stockQuantity: p.stock_quantity || 0,
-                taxRate: Number(p.tax_rate) || 0,
-                unit: p.unit || 'Nos',
-                description: '',
-                mrp: Number(p.mrp) || 0,
-                costPrice: Number(p.cost_price) || 0,
-                minStockLevel: p.min_stock_level || 5,
-                createdAt: p.created_at ? new Date(p.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
-              })),
-            parties: (dbParties || [])
-              .filter(p => p.business_id === biz.id)
-              .map(p => ({
-                id: p.id,
-                name: p.name,
-                type: p.type,
-                phone: p.phone,
-                email: p.email,
-                gstIn: p.gst_in,
-                place: p.place,
-                addressLine1: p.address_line1,
-                state: p.state
-              })),
-            invoices: (dbInvoices || [])
-              .filter(i => i.business_id === biz.id)
-              .map(i => ({
-                id: i.id,
-                invoiceNo: i.invoice_no,
-                customerName: i.customer_name,
-                partyId: i.party_id,
-                date: i.date,
-                items: i.items || [],
-                subTotal: Number(i.sub_total),
-                taxAmount: Number(i.tax_amount),
-                totalAmount: Number(i.total_amount),
-                status: i.status
-              })),
-            purchases: (dbPurchases || [])
-              .filter(p => p.business_id === biz.id)
-              .map(p => ({
-                id: p.id,
-                supplierName: p.supplier_name,
-                partyId: p.party_id,
-                date: p.date,
-                items: p.items || [],
-                totalAmount: Number(p.total_amount),
-                status: p.status
-              })),
-            expenses: [],
-            manualTransactions: [],
-            taxGroups: [],
-            auditLogs: []
-          };
-        });
-
-        const newState: AppState = {
-          ...localState,
-          businesses,
-          currentBusinessId: localState.currentBusinessId && businesses.find(b => b.id === localState.currentBusinessId) 
-            ? localState.currentBusinessId 
-            : businesses[0].id,
-          data: appData
-        };
-
-        saveAppState(newState);
-        onStateChange(newState, true);
-        return;
-      }
-      onStateChange(localState, true);
-    } catch (error) {
-      console.error("Sync Error, using Local Data:", error);
-      onStateChange(localState, true);
-    }
-  };
-
-  sync();
-  return () => { };
+  return () => {};
 };
 
 export const getAppState = (): AppState => {
@@ -176,26 +47,21 @@ export const getAppState = (): AppState => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return INITIAL_STATE;
     const parsed = JSON.parse(stored);
+    // Merge with INITIAL_STATE to ensure new fields are always present
     return { ...INITIAL_STATE, ...parsed };
-  } catch (e) { return INITIAL_STATE; }
+  } catch (e) { 
+    return INITIAL_STATE; 
+  }
 };
 
 export const saveAppState = (state: AppState) => { 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 };
 
+// --- PURE LOCAL OPERATIONS ---
+
 export const createBusiness = (business: Business) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('businesses').insert({
-            id: business.id,
-            name: business.name,
-            currency: business.currency,
-            invoice_prefix: business.invoicePrefix,
-            invoice_start_number: business.invoiceStartNumber
-        }).then();
-    }
-
     const newState = {
         ...state,
         businesses: [...state.businesses, business],
@@ -218,23 +84,6 @@ export const switchBusiness = (id: string) => {
 
 export const addProduct = (bizId: string, p: Product) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('products').insert({
-            id: p.id,
-            business_id: bizId,
-            name: p.name,
-            sku: p.sku,
-            category: p.category,
-            price: p.price,
-            mrp: p.mrp,
-            cost_price: p.costPrice,
-            stock_quantity: p.stockQuantity,
-            min_stock_level: p.minStockLevel,
-            tax_rate: p.taxRate,
-            unit: p.unit
-        }).then();
-    }
-
     const d = state.data[bizId] || { products: [], invoices: [], parties: [], purchases: [], expenses: [], manualTransactions: [], auditLogs: [], taxGroups: [] };
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, products: [...d.products, p] } } };
     saveAppState(newState);
@@ -243,21 +92,6 @@ export const addProduct = (bizId: string, p: Product) => {
 
 export const updateProduct = (bizId: string, p: Product) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('products').update({
-            name: p.name,
-            sku: p.sku,
-            category: p.category,
-            price: p.price,
-            mrp: p.mrp,
-            cost_price: p.costPrice,
-            stock_quantity: p.stockQuantity,
-            min_stock_level: p.minStockLevel,
-            tax_rate: p.taxRate,
-            unit: p.unit
-        }).eq('id', p.id).then();
-    }
-
     const d = state.data[bizId];
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, products: d.products.map(x => x.id === p.id ? p : x) } } };
     saveAppState(newState);
@@ -266,9 +100,6 @@ export const updateProduct = (bizId: string, p: Product) => {
 
 export const deleteProduct = (bizId: string, id: string) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('products').delete().eq('id', id).then();
-    }
     const d = state.data[bizId];
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, products: d.products.filter(p => p.id !== id) } } };
     saveAppState(newState);
@@ -277,22 +108,6 @@ export const deleteProduct = (bizId: string, id: string) => {
 
 export const addInvoice = (bizId: string, inv: Invoice) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('invoices').insert({
-            id: inv.id,
-            business_id: bizId,
-            invoice_no: inv.invoiceNo,
-            customer_name: inv.customerName,
-            party_id: inv.partyId,
-            date: inv.date,
-            items: inv.items,
-            sub_total: inv.subTotal,
-            tax_amount: inv.taxAmount,
-            total_amount: inv.totalAmount,
-            status: inv.status
-        }).then();
-    }
-
     const d = state.data[bizId];
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, invoices: [inv, ...d.invoices] } } };
     saveAppState(newState);
@@ -301,9 +116,6 @@ export const addInvoice = (bizId: string, inv: Invoice) => {
 
 export const deleteInvoice = (bizId: string, id: string) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('invoices').delete().eq('id', id).then();
-    }
     const d = state.data[bizId];
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, invoices: d.invoices.filter(x => x.id !== id) } } };
     saveAppState(newState);
@@ -312,20 +124,6 @@ export const deleteInvoice = (bizId: string, id: string) => {
 
 export const updateInvoice = (bizId: string, inv: Invoice) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('invoices').update({
-            invoice_no: inv.invoiceNo,
-            customer_name: inv.customerName,
-            party_id: inv.partyId,
-            date: inv.date,
-            items: inv.items,
-            sub_total: inv.subTotal,
-            tax_amount: inv.taxAmount,
-            total_amount: inv.totalAmount,
-            status: inv.status
-        }).eq('id', inv.id).then();
-    }
-
     const d = state.data[bizId];
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, invoices: d.invoices.map(x => x.id === inv.id ? inv : x) } } };
     saveAppState(newState);
@@ -334,21 +132,6 @@ export const updateInvoice = (bizId: string, inv: Invoice) => {
 
 export const addParty = (bizId: string, p: Party) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('parties').insert({
-            id: p.id,
-            business_id: bizId,
-            name: p.name,
-            type: p.type,
-            phone: p.phone,
-            email: p.email,
-            gst_in: p.gstIn,
-            place: p.place,
-            address_line1: p.addressLine1,
-            state: p.state
-        }).then();
-    }
-
     const d = state.data[bizId];
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, parties: [...d.parties, p] } } };
     saveAppState(newState);
@@ -357,19 +140,6 @@ export const addParty = (bizId: string, p: Party) => {
 
 export const updateParty = (bizId: string, p: Party) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('parties').update({
-            name: p.name,
-            type: p.type,
-            phone: p.phone,
-            email: p.email,
-            gst_in: p.gstIn,
-            place: p.place,
-            address_line1: p.addressLine1,
-            state: p.state
-        }).eq('id', p.id).then();
-    }
-
     const d = state.data[bizId];
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, parties: d.parties.map(x => x.id === p.id ? p : x) } } };
     saveAppState(newState);
@@ -378,9 +148,6 @@ export const updateParty = (bizId: string, p: Party) => {
 
 export const deleteParty = (bizId: string, id: string) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('parties').delete().eq('id', id).then();
-    }
     const d = state.data[bizId];
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, parties: d.parties.filter(x => x.id !== id) } } };
     saveAppState(newState);
@@ -389,19 +156,6 @@ export const deleteParty = (bizId: string, id: string) => {
 
 export const addPurchase = (bizId: string, p: Purchase) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('purchases').insert({
-            id: p.id,
-            business_id: bizId,
-            supplier_name: p.supplierName,
-            party_id: p.partyId,
-            date: p.date,
-            items: p.items,
-            total_amount: p.totalAmount,
-            status: p.status
-        }).then();
-    }
-
     const d = state.data[bizId];
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, purchases: [p, ...d.purchases] } } };
     saveAppState(newState);
@@ -410,9 +164,6 @@ export const addPurchase = (bizId: string, p: Purchase) => {
 
 export const deletePurchase = (bizId: string, id: string) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('purchases').delete().eq('id', id).then();
-    }
     const d = state.data[bizId];
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, purchases: d.purchases.filter(x => x.id !== id) } } };
     saveAppState(newState);
@@ -421,17 +172,6 @@ export const deletePurchase = (bizId: string, id: string) => {
 
 export const updatePurchase = (bizId: string, p: Purchase) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('purchases').update({
-            supplier_name: p.supplierName,
-            party_id: p.partyId,
-            date: p.date,
-            items: p.items,
-            total_amount: p.totalAmount,
-            status: p.status
-        }).eq('id', p.id).then();
-    }
-
     const d = state.data[bizId];
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, purchases: d.purchases.map(x => x.id === p.id ? p : x) } } };
     saveAppState(newState);
@@ -480,25 +220,6 @@ export const deleteManualTransaction = (bizId: string, id: string) => {
 
 export const updateBusinessDetails = (bizId: string, details: Partial<Business>) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('businesses').update({
-            name: details.name,
-            currency: details.currency,
-            address_line1: details.addressLine1,
-            city: details.city,
-            state: details.state,
-            pincode: details.pincode,
-            gst_in: details.gstIn,
-            email: details.email,
-            phone: details.phone,
-            bank_name: details.bankName,
-            bank_account_no: details.bankAccountNo,
-            bank_branch_ifsc: details.bankBranchIFSC,
-            invoice_prefix: details.invoicePrefix,
-            invoice_start_number: details.invoiceStartNumber
-        }).eq('id', bizId).then();
-    }
-
     const newState = {
         ...state,
         businesses: state.businesses.map(b => b.id === bizId ? { ...b, ...details } : b)
@@ -520,9 +241,6 @@ export const onSyncStatusChange = (listener: (isSaving: boolean) => void) => {
 
 export const deleteBusiness = (id: string) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('businesses').delete().eq('id', id).then();
-    }
     const newData = { ...state.data };
     delete newData[id];
     const newState = {
@@ -537,14 +255,13 @@ export const deleteBusiness = (id: string) => {
 
 export const clearBusinessData = (bizId: string) => {
     const state = getAppState();
-    if (process.env.API_KEY) {
-        supabase.from('products').delete().eq('business_id', bizId).then();
-        supabase.from('invoices').delete().eq('business_id', bizId).then();
-        supabase.from('parties').delete().eq('business_id', bizId).then();
-        supabase.from('purchases').delete().eq('business_id', bizId).then();
-    }
-
-    const newState = { ...state, data: { ...state.data, [bizId]: { products: [], invoices: [], parties: [], purchases: [], expenses: [], manualTransactions: [], auditLogs: [], taxGroups: [] } } };
+    const newState = { 
+        ...state, 
+        data: { 
+            ...state.data, 
+            [bizId]: { products: [], invoices: [], parties: [], purchases: [], expenses: [], manualTransactions: [], auditLogs: [], taxGroups: [] } 
+        } 
+    };
     saveAppState(newState);
     return newState;
 };
@@ -575,13 +292,6 @@ export const deleteTaxGroup = (bizId: string, id: string) => {
 
 export const bulkImportData = (bizId: string, i: Invoice[], pa: Party[], pr: Product[]) => {
     const state = getAppState();
-    
-    if (process.env.API_KEY) {
-        if (i.length) supabase.from('invoices').insert(i.map(item => ({ ...item, business_id: bizId }))).then();
-        if (pa.length) supabase.from('parties').insert(pa.map(item => ({ ...item, business_id: bizId }))).then();
-        if (pr.length) supabase.from('products').insert(pr.map(item => ({ ...item, business_id: bizId }))).then();
-    }
-
     const d = state.data[bizId];
     const newState = { 
         ...state, 
@@ -601,13 +311,6 @@ export const bulkImportData = (bizId: string, i: Invoice[], pa: Party[], pr: Pro
 
 export const bulkImportPurchases = (bizId: string, pu: Purchase[], pa: Party[], pr: Product[]) => {
     const state = getAppState();
-    
-    if (process.env.API_KEY) {
-        if (pu.length) supabase.from('purchases').insert(pu.map(item => ({ ...item, business_id: bizId }))).then();
-        if (pa.length) supabase.from('parties').insert(pa.map(item => ({ ...item, business_id: bizId }))).then();
-        if (pr.length) supabase.from('products').insert(pr.map(item => ({ ...item, business_id: bizId }))).then();
-    }
-
     const d = state.data[bizId];
     const newState = { 
         ...state, 
@@ -627,7 +330,6 @@ export const bulkImportPurchases = (bizId: string, pu: Purchase[], pa: Party[], 
 
 export const bulkImportParties = (bizId: string, pa: Party[]) => {
     const state = getAppState();
-    if (process.env.API_KEY && pa.length) supabase.from('parties').insert(pa.map(item => ({ ...item, business_id: bizId }))).then();
     const d = state.data[bizId];
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, parties: [...pa, ...d.parties] } } };
     saveAppState(newState);
@@ -635,7 +337,7 @@ export const bulkImportParties = (bizId: string, pa: Party[]) => {
 };
 
 export const resetSyncData = async () => { localStorage.removeItem(STORAGE_KEY); window.location.reload(); };
-export const forcePushToCloud = async () => { window.location.reload(); return true; };
+export const forcePushToCloud = async () => { return true; };
 export const addUser = (u: any) => getAppState();
 export const updateUser = (u: any) => getAppState();
 export const deleteUser = (id: string) => getAppState();

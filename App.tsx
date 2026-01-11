@@ -30,16 +30,12 @@ export const ThemeContext = createContext<ThemeContextType>({ theme: 'dark', set
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(() => getAppState());
-  
-  // Start with syncing false if we already have local data, otherwise true
-  const hasLocalData = appState.businesses.length > 0;
   const [isSyncing, setIsSyncing] = useState(true);
 
   const [currentView, setCurrentView] = useState('dashboard');
   const [showBusinessModal, setShowBusinessModal] = useState(false);
   const [newBizName, setNewBizName] = useState('');
   const [newBizCurrency, setNewBizCurrency] = useState<Currency>(Currency.INR);
-  const [editingBusiness, setEditingBusiness] = useState<Business | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
 
@@ -75,12 +71,9 @@ const App: React.FC = () => {
         ...newState,
         currentBusinessId: prevState.currentBusinessId || newState.currentBusinessId
       }));
-      // If syncComplete is passed, it means Supabase check is finished
       if (syncComplete) setIsSyncing(false);
     });
 
-    // Forced exit from loading screen after 4 seconds regardless of network status
-    const safetyTimeout = setTimeout(() => setIsSyncing(false), 4000);
     const unsubSaveStatus = onSyncStatusChange((saving) => setIsSaving(saving));
 
     const handleBeforeInstallPrompt = (e: any) => {
@@ -116,7 +109,6 @@ const App: React.FC = () => {
     localStorage.setItem('theme', theme);
 
     return () => {
-      clearTimeout(safetyTimeout);
       unsubscribe();
       unsubSaveStatus();
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -148,7 +140,7 @@ const App: React.FC = () => {
                     <div className="absolute -inset-4 rounded-full border-2 border-lime/20 border-t-lime animate-spin"></div>
                 </div>
                 <p className="mt-8 text-white font-bold text-sm tracking-widest uppercase opacity-70">Loading Workspace...</p>
-                <p className="mt-2 text-gray-500 text-xs animate-pulse">Synchronizing Data...</p>
+                <p className="mt-2 text-gray-500 text-xs animate-pulse">Initializing Local Data...</p>
             </div>
         </ThemeContext.Provider>
       );
@@ -185,7 +177,6 @@ const App: React.FC = () => {
   }
 
   if (!currentBusiness || !currentData) {
-      // Emergency reset if state is corrupted
       return <div className="flex h-screen flex-col items-center justify-center text-gray-400 gap-4">
           <p className="font-bold text-xs uppercase tracking-widest">Initializing Data structures...</p>
           <button onClick={() => window.location.reload()} className="px-4 py-2 bg-lime text-black rounded-xl font-bold text-xs">Retry</button>
