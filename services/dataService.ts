@@ -1,7 +1,7 @@
 
 import { AppState, Business, BusinessData, Product, Invoice, Party, Purchase, Expense, ManualTransaction, AuditLog, AppPreferences, User, TaxGroup, Currency } from '../types';
 
-const STORAGE_KEY = 'bizflow_ai_data_local_v1';
+const STORAGE_KEY = 'cp_enterprises_local_v1';
 
 const DEFAULT_PREFERENCES: AppPreferences = {
   mobileSidebarStyle: 'hidden',
@@ -30,15 +30,13 @@ const INITIAL_STATE: AppState = {
 };
 
 /**
- * Initializes the app state from Local Storage.
- * Database connections are currently disabled.
+ * Pure Local Initialization.
+ * Resolves instantly from browser storage.
  */
 export const initializeSync = (onStateChange: (newState: AppState, syncComplete?: boolean) => void) => {
   const localState = getAppState();
-  
-  // Provide an immediate update to the UI
   onStateChange(localState, true);
-
+  // Return empty cleanup function
   return () => {};
 };
 
@@ -47,7 +45,7 @@ export const getAppState = (): AppState => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return INITIAL_STATE;
     const parsed = JSON.parse(stored);
-    // Merge with INITIAL_STATE to ensure new fields are always present
+    // Merge with INITIAL_STATE to handle schema updates
     return { ...INITIAL_STATE, ...parsed };
   } catch (e) { 
     return INITIAL_STATE; 
@@ -58,7 +56,7 @@ export const saveAppState = (state: AppState) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 };
 
-// --- PURE LOCAL OPERATIONS ---
+// --- MULTI-BUSINESS CORE OPERATIONS ---
 
 export const createBusiness = (business: Business) => {
     const state = getAppState();
@@ -81,6 +79,22 @@ export const switchBusiness = (id: string) => {
     saveAppState(newState);
     return newState;
 };
+
+export const deleteBusiness = (id: string) => {
+    const state = getAppState();
+    const newData = { ...state.data };
+    delete newData[id];
+    const newState = {
+        ...state,
+        businesses: state.businesses.filter(b => b.id !== id),
+        currentBusinessId: state.currentBusinessId === id ? (state.businesses.find(b => b.id !== id)?.id || null) : state.currentBusinessId,
+        data: newData
+    };
+    saveAppState(newState);
+    return newState;
+};
+
+// --- DATA CRUD OPERATIONS (POCKETED BY BUSINESS ID) ---
 
 export const addProduct = (bizId: string, p: Product) => {
     const state = getAppState();
@@ -114,18 +128,18 @@ export const addInvoice = (bizId: string, inv: Invoice) => {
     return newState;
 };
 
-export const deleteInvoice = (bizId: string, id: string) => {
-    const state = getAppState();
-    const d = state.data[bizId];
-    const newState = { ...state, data: { ...state.data, [bizId]: { ...d, invoices: d.invoices.filter(x => x.id !== id) } } };
-    saveAppState(newState);
-    return newState;
-};
-
 export const updateInvoice = (bizId: string, inv: Invoice) => {
     const state = getAppState();
     const d = state.data[bizId];
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, invoices: d.invoices.map(x => x.id === inv.id ? inv : x) } } };
+    saveAppState(newState);
+    return newState;
+};
+
+export const deleteInvoice = (bizId: string, id: string) => {
+    const state = getAppState();
+    const d = state.data[bizId];
+    const newState = { ...state, data: { ...state.data, [bizId]: { ...d, invoices: d.invoices.filter(x => x.id !== id) } } };
     saveAppState(newState);
     return newState;
 };
@@ -178,30 +192,6 @@ export const updatePurchase = (bizId: string, p: Purchase) => {
     return newState;
 };
 
-export const addExpense = (bizId: string, e: Expense) => {
-    const state = getAppState();
-    const d = state.data[bizId];
-    const newState = { ...state, data: { ...state.data, [bizId]: { ...d, expenses: [e, ...d.expenses] } } };
-    saveAppState(newState);
-    return newState;
-};
-
-export const updateExpense = (bizId: string, e: Expense) => {
-    const state = getAppState();
-    const d = state.data[bizId];
-    const newState = { ...state, data: { ...state.data, [bizId]: { ...d, expenses: d.expenses.map(x => x.id === e.id ? e : x) } } };
-    saveAppState(newState);
-    return newState;
-};
-
-export const deleteExpense = (bizId: string, id: string) => {
-    const state = getAppState();
-    const d = state.data[bizId];
-    const newState = { ...state, data: { ...state.data, [bizId]: { ...d, expenses: d.expenses.filter(x => x.id !== id) } } };
-    saveAppState(newState);
-    return newState;
-};
-
 export const addManualTransaction = (bizId: string, t: ManualTransaction) => {
     const state = getAppState();
     const d = state.data[bizId];
@@ -214,54 +204,6 @@ export const deleteManualTransaction = (bizId: string, id: string) => {
     const state = getAppState();
     const d = state.data[bizId];
     const newState = { ...state, data: { ...state.data, [bizId]: { ...d, manualTransactions: d.manualTransactions.filter(x => x.id !== id) } } };
-    saveAppState(newState);
-    return newState;
-};
-
-export const updateBusinessDetails = (bizId: string, details: Partial<Business>) => {
-    const state = getAppState();
-    const newState = {
-        ...state,
-        businesses: state.businesses.map(b => b.id === bizId ? { ...b, ...details } : b)
-    };
-    saveAppState(newState);
-    return newState;
-};
-
-export const updatePreferences = (prefs: Partial<AppPreferences>) => {
-    const state = getAppState();
-    const newState = { ...state, preferences: { ...state.preferences, ...prefs } };
-    saveAppState(newState);
-    return newState;
-};
-
-export const onSyncStatusChange = (listener: (isSaving: boolean) => void) => {
-    return () => {}; 
-};
-
-export const deleteBusiness = (id: string) => {
-    const state = getAppState();
-    const newData = { ...state.data };
-    delete newData[id];
-    const newState = {
-        ...state,
-        businesses: state.businesses.filter(b => b.id !== id),
-        currentBusinessId: state.currentBusinessId === id ? (state.businesses.find(b => b.id !== id)?.id || null) : state.currentBusinessId,
-        data: newData
-    };
-    saveAppState(newState);
-    return newState;
-};
-
-export const clearBusinessData = (bizId: string) => {
-    const state = getAppState();
-    const newState = { 
-        ...state, 
-        data: { 
-            ...state.data, 
-            [bizId]: { products: [], invoices: [], parties: [], purchases: [], expenses: [], manualTransactions: [], auditLogs: [], taxGroups: [] } 
-        } 
-    };
     saveAppState(newState);
     return newState;
 };
@@ -289,6 +231,40 @@ export const deleteTaxGroup = (bizId: string, id: string) => {
     saveAppState(newState);
     return newState;
 };
+
+export const clearBusinessData = (bizId: string) => {
+    const state = getAppState();
+    const newState = { 
+        ...state, 
+        data: { 
+            ...state.data, 
+            [bizId]: { products: [], invoices: [], parties: [], purchases: [], expenses: [], manualTransactions: [], auditLogs: [], taxGroups: [] } 
+        } 
+    };
+    saveAppState(newState);
+    return newState;
+};
+
+// --- PREFERENCES & USER OPS ---
+
+export const updatePreferences = (prefs: Partial<AppPreferences>) => {
+    const state = getAppState();
+    const newState = { ...state, preferences: { ...state.preferences, ...prefs } };
+    saveAppState(newState);
+    return newState;
+};
+
+export const updateBusinessDetails = (bizId: string, details: Partial<Business>) => {
+    const state = getAppState();
+    const newState = {
+        ...state,
+        businesses: state.businesses.map(b => b.id === bizId ? { ...b, ...details } : b)
+    };
+    saveAppState(newState);
+    return newState;
+};
+
+// --- BULK OPS ---
 
 export const bulkImportData = (bizId: string, i: Invoice[], pa: Party[], pr: Product[]) => {
     const state = getAppState();
@@ -336,9 +312,14 @@ export const bulkImportParties = (bizId: string, pa: Party[]) => {
     return newState;
 };
 
+// --- UTILS ---
+export const restoreAppState = (s: any) => { saveAppState(s); window.location.reload(); };
+export const onSyncStatusChange = (listener: (isSaving: boolean) => void) => { return () => {}; };
 export const resetSyncData = async () => { localStorage.removeItem(STORAGE_KEY); window.location.reload(); };
 export const forcePushToCloud = async () => { return true; };
 export const addUser = (u: any) => getAppState();
 export const updateUser = (u: any) => getAppState();
 export const deleteUser = (id: string) => getAppState();
-export const restoreAppState = (s: any) => { saveAppState(s); window.location.reload(); };
+export const addExpense = (bizId: string, e: Expense) => getAppState();
+export const updateExpense = (bizId: string, e: Expense) => getAppState();
+export const deleteExpense = (bizId: string, id: string) => getAppState();
