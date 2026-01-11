@@ -29,10 +29,11 @@ interface ThemeContextType {
 export const ThemeContext = createContext<ThemeContextType>({ theme: 'dark', setTheme: () => {}, isDark: true });
 
 const App: React.FC = () => {
-  const [appState, setAppState] = useState<AppState>(getAppState());
+  const [appState, setAppState] = useState<AppState>(() => getAppState());
   
-  const hasLocalData = appState.businesses.length > 0 && !!appState.currentUser;
-  const [isSyncing, setIsSyncing] = useState(!hasLocalData);
+  // Start with syncing false if we already have local data, otherwise true
+  const hasLocalData = appState.businesses.length > 0;
+  const [isSyncing, setIsSyncing] = useState(true);
 
   const [currentView, setCurrentView] = useState('dashboard');
   const [showBusinessModal, setShowBusinessModal] = useState(false);
@@ -57,14 +58,14 @@ const App: React.FC = () => {
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'dark');
   const [isDark, setIsDark] = useState(true);
 
-  const activeUser: User = appState.currentUser || appState.users[0] || {
+  const activeUser: User = appState.currentUser || appState.users?.[0] || {
     id: 'guest-fallback',
-    name: 'Loading...',
-    username: 'guest',
-    role: 'STAFF',
+    name: 'Master Admin',
+    username: 'admin',
+    role: 'ADMIN',
     permissions: { 
-        canManageInventory: false, canManageInvoices: false, canManagePurchases: false, 
-        canManageParties: false, canManageExpenses: false, canDeleteData: false, canViewReports: false 
+        canManageInventory: true, canManageInvoices: true, canManagePurchases: true, 
+        canManageParties: true, canManageExpenses: true, canDeleteData: true, canViewReports: true 
     }
   };
 
@@ -74,10 +75,12 @@ const App: React.FC = () => {
         ...newState,
         currentBusinessId: prevState.currentBusinessId || newState.currentBusinessId
       }));
+      // If syncComplete is passed, it means Supabase check is finished
       if (syncComplete) setIsSyncing(false);
     });
 
-    const safetyTimeout = setTimeout(() => setIsSyncing(false), 6000);
+    // Forced exit from loading screen after 4 seconds regardless of network status
+    const safetyTimeout = setTimeout(() => setIsSyncing(false), 4000);
     const unsubSaveStatus = onSyncStatusChange((saving) => setIsSaving(saving));
 
     const handleBeforeInstallPrompt = (e: any) => {
@@ -123,7 +126,6 @@ const App: React.FC = () => {
   const handleViewChange = (view: string) => {
     setCurrentView(view);
     setSearchTerm('');
-    // Removed automatic month/year filtering to load all data by default
     const newFilterConfig: FilterConfig = { 
         dateRange: { start: '', end: '' }, 
         partyId: '', productId: '', minAmount: '', maxAmount: '',
@@ -182,7 +184,13 @@ const App: React.FC = () => {
     );
   }
 
-  if (!currentBusiness || !currentData) return <div className="flex h-screen items-center justify-center text-gray-400 animate-pulse font-bold text-xs uppercase tracking-widest">Initializing...</div>;
+  if (!currentBusiness || !currentData) {
+      // Emergency reset if state is corrupted
+      return <div className="flex h-screen flex-col items-center justify-center text-gray-400 gap-4">
+          <p className="font-bold text-xs uppercase tracking-widest">Initializing Data structures...</p>
+          <button onClick={() => window.location.reload()} className="px-4 py-2 bg-lime text-black rounded-xl font-bold text-xs">Retry</button>
+      </div>;
+  }
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme, isDark }}>

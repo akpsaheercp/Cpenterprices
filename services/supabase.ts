@@ -1,32 +1,33 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// The API key is obtained exclusively from the environment variable process.env.API_KEY.
-// Project ID: jnqpzkjthuxvobqhlzbp
+// The API key is obtained from the environment variable. 
+// If missing, we provide a placeholder to prevent the client from crashing on initialization.
 const supabaseUrl = 'https://jnqpzkjthuxvobqhlzbp.supabase.co';
-const supabaseKey = process.env.API_KEY; 
+const supabaseKey = process.env.API_KEY || ''; 
 
 if (!supabaseKey) {
-    console.error("Supabase API Key (process.env.API_KEY) is missing. Ensure the environment is configured correctly.");
+    console.warn("Supabase API Key is missing. Data will be saved locally only.");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey || '');
+export const supabase = createClient(supabaseUrl, supabaseKey);
 
 /**
  * Ensures the user has an active session. 
- * This is called during app initialization to allow RLS policies to function.
+ * Handled gracefully to allow the app to function even if Supabase is unavailable.
  */
 export const signInAnonymously = async () => {
     try {
-        if (!supabase.auth || typeof supabase.auth.signInAnonymously !== 'function') {
-            throw new Error("signInAnonymously is not supported by this version of Supabase SDK.");
-        }
+        if (!supabaseKey) return null;
         
         const { data, error } = await supabase.auth.signInAnonymously();
-        if (error) throw error;
+        if (error) {
+            console.warn("Supabase Auth Error (continuing as guest):", error.message);
+            return null;
+        }
         return data.user;
     } catch (error) {
-        console.error("Supabase Auth Error:", error);
-        throw error;
+        console.error("Supabase Auth Exception:", error);
+        return null;
     }
 };
